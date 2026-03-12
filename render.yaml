@@ -1,0 +1,36 @@
+# render.yaml — Render Blueprint Specification
+# Docs: https://render.com/docs/yaml-spec
+
+services:
+  - type: web
+    name: coderai-orchestrator
+    runtime: docker
+    plan: starter # Disks require at least the Starter plan
+    region: singapore # Change to your preferred region
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      # ⚠️ IMPORTANT: Render does not provide a Docker socket.
+      # You MUST set this to a remote Docker host (e.g. a $5 DigitalOcean Droplet with Docker)
+      # Format: tcp://<ip-or-hostname>:2375
+      - key: DOCKER_HOST
+        sync: false 
+      - key: BASE_HOST_PORT
+        value: "3100"
+
+    # Persistent Storage for SQLite Database
+    disk:
+      name: coderai-data
+      mountPath: /app/data
+      sizeGB: 1
+
+    healthCheckPath: /health
+
+    # Auto-scaling or Instance size
+    numInstances: 1 # Must be 1 for SQLite consistency
+
+# NOTE: If you don't want to pay for a Render Disk, 
+# you can use an external Postgres/MySQL and update ProjectDB.ts,
+# but for now, this Disk setup is the easiest for SQLite.

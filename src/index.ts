@@ -135,21 +135,6 @@ app.get('/api/projects/:projectId/logs', (req, res) => {
 
 // 1. Create and Start Project
 
-// ─── Health Check ─────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => {
-    const mem = process.memoryUsage();
-    res.json({
-        status: 'ok',
-        uptime: Math.floor(process.uptime()),
-        memory: {
-            rss: `${Math.round(mem.rss / 1024 / 1024)}MB`,
-            heap: `${Math.round(mem.heapUsed / 1024 / 1024)}MB`,
-        },
-        activeContainers: Object.keys(projectContainers).length,
-        timestamp: new Date().toISOString(),
-    });
-});
-
 // ── Port Allocator ──────────────────────────────────────────────────────────
 // Ports in range [BASE_PORT, BASE_PORT + 2000). Each project gets a unique one.
 const BASE_PORT = 3100;
@@ -503,35 +488,92 @@ setInterval(async () => {
 
 const PORT = process.env.PORT || 4000;
 
-async function start() {
+// ─── Docker availability flag ─────────────────────────────────────────────────
+// Set to true once we confirm Docker socket is reachable.
+// If Docker is unavailable (e.g. Render without socket), the server still starts
+// but project creation will return a clear error message instead of crashing.
+let dockerAvailable = false;
+
+// Update /health to include Docker status
+app.get('/health', (_req, res) => {
+    const mem = process.memoryUsage();
+    res.json({
+        status: 'ok',
+        dockerAvailable,
+        uptime: Math.floor(process.uptime()),
+        memory: {
+            rss: `${Math.round(mem.rss / 1024 / 1024)}MB`,
+            heap: `${Math.round(mem.heapUsed / 1024 / 1024)}MB`,
+        },
+        activeContainers: Object.keys(projectContainers).length,
+        timestamp: new Date().toISOString(),
+    });
+});
+
+async function initDocker() {
+    // DOCKER_HOST can be set to tcp://host:port for an external Docker daemon
+    // e.g. on Render, run a $5 DigitalOcean Droplet and set:
+    //   DOCKER_HOST=tcp://your-droplet-ip:2375
+    const dockerOpts: any = {};
+    if (process.env.DOCKER_HOST) {
+        const url = new URL(process.env.DOCKER_HOST.replace('tcp://', 'http://'));
+        dockerOpts.host = url.hostname;
+        dockerOpts.port = parseInt(url.port) || 2375;
+        console.log(`🐳 Using remote Docker daemon: ${process.env.DOCKER_HOST}`);
+    } else {
+        dockerOpts.socketPath = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
+    }
+
     try {
-        const docker = new (require('dockerode'))();
+        const Docker = require('dockerode');
+        const docker = new Docker(dockerOpts);
+
+        // Quick ping to verify connectivity
+        await docker.ping();
+        console.log('🐳 Docker daemon connected successfully');
+        dockerAvailable = true;
 
         // Build/Check Coder Node Image
         try {
             await docker.getImage('coder-node').inspect();
-            console.log('coder-node image already exists.');
+            console.log('  ✓ coder-node image ready');
         } catch {
-            console.log('Building coder-node image...');
+            console.log('  ⏳ Building coder-node image (first-time setup)...');
             await dockerManager.buildWorkerImage(path.join(__dirname, '../node.Dockerfile'), 'coder-node');
+            console.log('  ✓ coder-node image built');
         }
 
         // Build/Check Coder Python Image
         try {
             await docker.getImage('coder-python').inspect();
-            console.log('coder-python image already exists.');
+            console.log('  ✓ coder-python image ready');
         } catch {
-            console.log('Building coder-python image...');
+            console.log('  ⏳ Building coder-python image (first-time setup)...');
             await dockerManager.buildWorkerImage(path.join(__dirname, '../python.Dockerfile'), 'coder-python');
+            console.log('  ✓ coder-python image built');
         }
 
-        server.listen(PORT, () => {
-            console.log(`Orchestrator running on port ${PORT}`);
-        });
-    } catch (err) {
-        console.error('Failed to start orchestrator:', err);
-        process.exit(1);
+    } catch (err: any) {
+        dockerAvailable = false;
+        console.warn('');
+        console.warn('⚠️  Docker daemon NOT available:', err.message);
+        console.warn('   → Project creation will fail until Docker is connected.');
+        console.warn('   → On Render: set DOCKER_HOST=tcp://<your-docker-vps>:2375');
+        console.warn('   → On Fly.io: run fly machine update --privileged');
+        console.warn('');
     }
+}
+
+async function start() {
+    // ── Start HTTP server FIRST (so Render/Fly health checks pass) ──────────
+    server.listen(PORT, () => {
+        console.log(`✅ Orchestrator running on port ${PORT} (NODE_ENV=${process.env.NODE_ENV})`);
+    });
+
+    // ── Then try to connect Docker in the background ─────────────────────────
+    // This is async — if Docker isn't ready yet, we'll retry gracefully.
+    // The server stays up regardless.
+    await initDocker();
 }
 
 start();
