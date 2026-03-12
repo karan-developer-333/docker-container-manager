@@ -135,6 +135,21 @@ app.get('/api/projects/:projectId/logs', (req, res) => {
 
 // 1. Create and Start Project
 
+// ─── Health Check ─────────────────────────────────────────────────────────────
+app.get('/health', (_req, res) => {
+    const mem = process.memoryUsage();
+    res.json({
+        status: 'ok',
+        uptime: Math.floor(process.uptime()),
+        memory: {
+            rss: `${Math.round(mem.rss / 1024 / 1024)}MB`,
+            heap: `${Math.round(mem.heapUsed / 1024 / 1024)}MB`,
+        },
+        activeContainers: Object.keys(projectContainers).length,
+        timestamp: new Date().toISOString(),
+    });
+});
+
 // ── Port Allocator ──────────────────────────────────────────────────────────
 // Ports in range [BASE_PORT, BASE_PORT + 2000). Each project gets a unique one.
 const BASE_PORT = 3100;

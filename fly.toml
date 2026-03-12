@@ -1,0 +1,69 @@
+# fly.toml — Fly.io deployment config for Coder AI Orchestrator
+# Deploy: fly deploy
+
+app = "coderai-orchestrator"      # Change to your unique app name
+primary_region = "sin"            # Singapore — closest to India; or try "bom" if available
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT     = "4000"
+  # Port range for user project containers (must match [[services]] TCP)
+  BASE_HOST_PORT = "3100"
+  MAX_HOST_PORT  = "3200"
+
+# ── Main HTTP service ──────────────────────────────────────────────────────────
+[[services]]
+  protocol    = "tcp"
+  internal_port = 4000
+
+  [[services.ports]]
+    port     = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+  [[services.http_checks]]
+    interval   = "15s"
+    timeout    = "5s"
+    grace_period = "30s"
+    method     = "GET"
+    path       = "/health"
+
+# ── Project preview port range (TCP passthrough) ──────────────────────────────
+# Each user project gets a unique port in 3100-3200 range
+# Fly.io exposes these as TCP services so users can hit preview URLs
+[[services]]
+  protocol      = "tcp"
+  internal_port = 3100
+
+  [[services.ports]]
+    port     = 3100
+    handlers = ["tcp"]
+
+# ── Machine/VM settings ───────────────────────────────────────────────────────
+[vm]
+  cpu_kind  = "shared"
+  cpus      = 2
+  memory_mb = 2048     # 2GB — adjust based on concurrent users
+
+# ── Persistent volumes (SQLite DB + project files) ────────────────────────────
+[mounts]
+  source      = "coderai_data"
+  destination = "/app/data"
+
+# NOTE: Fly.io does NOT support Docker-in-Docker by default.
+# To enable Docker socket access (required to spawn project containers),
+# you must use a Fly Machine with --privileged flag.
+# Run this once after initial deploy:
+#   fly machine update <machine-id> --privileged
+# Or use the fly-machines.sh helper script included in this repo.
