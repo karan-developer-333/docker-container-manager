@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background: radial-gradient(ellipse at 50% 30%, rgba(0, 245, 255, 0.1) 0%, transparent 70%),
+                linear-gradient(135deg, rgba(10, 10, 26, 0.8) 0%, rgba(20, 20, 40, 0.8) 100%);
+    min-height: 100vh;
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(0, 245, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(0, 245, 255, 0.6);
+  }
+}
+
+.glow {
+  animation: glow 3s ease-in-out infinite;
+}
